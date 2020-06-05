@@ -76,14 +76,14 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
     tmodel=model(cmodel)
     
     orig_text1=text_ls[:]
-    kl=spacy.load('en')
     orig_label=tmodel.getPredictions([text_ls])[0]
     labels=['Negative','Positive']
-    if true_label != orig_label:  
-        return '', 0, orig_label, orig_label, 0,1
+    if true_label != orig_label:
+        return '', 0, orig_label, orig_label, 0
     else:
         text_temp=text_ls
-        doc=kl(str(text_ls))
+        nlp = spacy.load('en')
+        doc=nlp(str(text_ls))
         text_ls=[str(j) for j in doc]
         len_text = len(text_ls)
         if len_text < sim_score_window:
@@ -91,11 +91,10 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
         half_sim_score_window = (sim_score_window - 1) // 2
         num_queries = 1
         
-        # get the posinfo
+        # get the pos and verb tense info
         pos_ls = criteria.get_pos(text_ls)
         
         #sentence segmentation
-        nlp = spacy.load('en')
         sents_sentiment_dic={}
         text_sentences = nlp(text_temp)
         sents1=text_sentences.sents
@@ -124,14 +123,16 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
         top_sent_imp={}
         agg_imp_dic={}
         word_agg_dic1={}
-
+        sent_agg_dic={}
         while len(neg_sents)!=0:
             p+=1
             top_sent_imp[p]=[]
             if p<=len(neg_sents):
                 for neg_sent_comb in combinations(neg_sents,p):
                     neg_agg=' '.join(list(neg_sent_comb))
-                    agg_=pos_aggregate + neg_agg
+                    #print(neg_agg)
+                    agg_=pos_aggregate + " " + neg_agg
+                    
                     preds3=tmodel.getPredictions([agg_])[0]
                     num_queries+=1
                     if preds3==orig_label:
@@ -141,15 +142,15 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                             agg_imp_dic[agg_]=1-orig_label
                             tokenizer = RegexpTokenizer(r'\w+')
                             text_tokens = tokenizer.tokenize(agg_)
-
-                            
+                        
                             for word in text_tokens:
-        
-                                #print(word)
-                                if word in word_agg_dic1:
-                                    word_agg_dic1[word].append(agg_)
-                                else:
-                                    word_agg_dic1[word]=[agg_]
+                                if len(word)>1:
+                                    #print(word)
+                                    if word in word_agg_dic1:
+                                        word_agg_dic1[word].append(agg_)
+                                    else:
+                                        word_agg_dic1[word]=[agg_]
+
                 
                     if len(top_sent_imp[p])!=0:
                             for sent4 in top_sent_imp[p]:
@@ -165,41 +166,43 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
         for key in top_sent_imp:
                 for sent6 in top_sent_imp[key]:
                             imp_dic[sent6]=key
-        #print(top_sent_imp)
-        #print("Importance ranking of sentences in review: ",imp_dic)
-                    
+            
         #get word importance scores
         ind_count=0
         import_scores=[]
         for sent in sents:
-            text_tokens = word_tokenize(sent)
-            text_sent = [word for word in text_tokens]
+            text_tokens = nlp(sent)
+            text_sent = [str(word) for word in text_tokens]
             
             if not sent in sents_sentiment_dic[orig_label]:
                     import_scores.extend([300]*len(text_sent))
-                    ind_count+=len(text_sent)
             else:                                 
-                    leave_1_texts = [' '.join(text_ls[:ii] + ['<oov>'] + text_ls[min(ii + 1, len_text):]) for ii in range(ind_count,ind_count+len(text_sent))]
                     pos_tags=criteria.get_pos(text_sent)
-                    for i1 in range(len(pos_tags)):
+                    for i1 in range(len(text_sent)):
                         if pos_tags[i1]=='ADV':
-                                import_scores.append(imp_dic[sent]+10)
+                                import_scores.append(imp_dic[sent]+15)
                         elif pos_tags[i1]=='VERB':
-                                import_scores.append(imp_dic[sent]+20)
+                                import_scores.append(imp_dic[sent]+15)
                         elif pos_tags[i1]=='ADJ':
                                 import_scores.append(imp_dic[sent])
                         else:
                             import_scores.append(imp_dic[sent]+50)
-                                         
-                    ind_count+=len(text_sent)
+                        if len(text_sent[i1])>1 and 1<0:
+                            if text_sent[i1] in word_agg_dic1 and not sent_agg_dic.get(sent,[sent]) in word_agg_dic1[text_sent[i1]]:
+                                    word_agg_dic1[text_sent[i1]].append(sent_agg_dic.get(sent,[sent]))
+                            else:
+                                    word_agg_dic1[text_sent[i1]]=[sent_agg_dic.get(sent,[sent])]
+    
+                        
+
         import_scores=np.array(import_scores)
-        #print("Importance ranking of words in review:",import_scores)
         
         # get words to perturb ranked by importance score for word in words_perturb
         words_perturb = []
         text_prime = text_ls[:]
         import_scores=np.array(import_scores)
         imp_indxs=np.argsort(import_scores).tolist()
+        
         for idx in imp_indxs:
             try:
                 if not text_prime[idx] in stop_words_set:
@@ -218,108 +221,136 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                     synonyms_all.append((idx, synonyms))
 
         # start replacing and attacking
-        
-        #text_cache = text_prime[:]
         num_changed = 0
         idx_flag=0
         backtrack_dic={}
-        flag11=0
+        flg=0
+        misclassified=False
+        visited={}
         
+        #map the words to indices in text_prime
+        word_idx_dic={}
+        for idx in range(len(text_prime)):
+            word=text_prime[idx]
+            if word in word_idx_dic:
+                word_idx_dic[word].append(idx)
+            else:
+                word_idx_dic[word]=[idx]
+            visited[word]=False
+        origtext_prime=text_prime.copy()
+
         for idx, synonyms in synonyms_all:
                 orig_pos=criteria.get_pos(text_prime)[idx]
-
-                if flag11==1:
-                    break
                 idx=idx+idx_flag
-                g=' '.join(text_prime)
-                prd=tmodel.getPredictions([g])[0]
-                if prd==(1-orig_label):
+                if len(origtext_prime[idx])<=1 or visited[origtext_prime[idx]]==True:
+                    continue
 
-                    #Backtrack: Revisit words perturbed by algorithm, & restore only those perturbations which were not necessary for misclassification
+                if misclassified:   #indicator of misclassification 
+                    #backtrack-> revert those replacements which were not necessary
+
                     for (wrd,index) in backtrack_dic:
-                    
+
                         pred=tmodel.getPredictions([' '.join(text_prime[:index]+[backtrack_dic[(wrd,index)]]+text_prime[index+1:])])[0]
                         num_queries+=1
-                
                         if pred==(1-orig_label):
                             text_prime[index]=backtrack_dic[(wrd,index)]
                             num_changed-=1
+                          
                     break
+    
 
-                # Step#1: Find aggregate (with class= orig_label) within which the word to be attacked exists
-                fl=0
+                # Step#1: Find all aggregates(with orig_label) to which the target wrd belongs
                 
                 target_word=text_prime[idx]
+                
+                visited[target_word]=True
                 flg3=0
                 if target_word in word_agg_dic1:
                     if word_agg_dic1[target_word]==[]:
-                        #print(target_word)
+        
                         word_agg_dic1.pop(target_word)
+
                     else:
-                        agg=word_agg_dic1[target_word].pop(0)
+
+                        agg_list=list(set(word_agg_dic1[target_word]))
+                        word_agg_dic1[target_word]=[]
+
                         flg3=1
                     
                 if flg3==0:
                     for sent in sents_sentiment_dic[orig_label]:
                         if target_word in sent:
-                            agg=sent
+                            agg_list=[sent]
                             flg3=1
                             break
                     if flg3==0:
                         continue
                         
                 #Replace the word with all the synonyms
-                agg_with_synonyms=[agg.replace(target_word,synonym) for synonym in synonyms]
+                agg_with_synonyms=[[agg.replace(target_word,synonym) for synonym in synonyms] for agg in agg_list]
                 
                 #Query the model for reviews after replacements with the synonyms for the word 
-                preds4=tmodel.getPredictions(agg_with_synonyms)
-                num_queries+=len(preds4)
+                for agg_with_syn in agg_with_synonyms:
+                    preds4=tmodel.getPredictions(agg_with_syn)
 
-                orig_pos=criteria.get_pos(text_prime)[idx]
-                ind=0
-               
-                #Find that synonym which when used for replacement makes the review/aggregate/sentence to misclassify 
-                if (1-orig_label) in preds4:
-                    flg=0
-                    ct1=preds4.count(int(1-orig_label))
-                    flag2=0
-                    bestsim=-1
-                    flag11=0
-                    while flag2<ct1:
-                        if ind==1:
-                            break
-                        try:
-                                ind=preds4.index(int(1-orig_label),ind+1)
-                                flag2+=1
-                                sym_wrd=synonyms[ind]
-                                prd1=tmodel.getPredictions([' '.join(text_prime[:idx]+[sym_wrd]+text_prime[idx+1:])])[0]
-                                new_rev=text_prime.copy()
-                                new_rev[idx]=sym_wrd
-                                orig_word=text_prime[idx]
-                                orig_text_prime=' '.join(text_prime)
-                                sem_sim=semantic_sim([' '.join(new_rev)],[orig_text_prime])
-                                pos_tag_new=criteria.get_pos(new_rev)[idx]
+                    num_queries+=len(preds4)
+ 
+                    orig_pos=criteria.get_pos(text_prime)[idx]
 
-                                if sem_sim>=sim_score_threshold and orig_pos==pos_tag_new:
-                                        if prd1==(1-orig_label):
-                                                text_prime[idx]=sym_wrd
-                                                flg=1
-                                        
-                                        elif sem_sim>bestsim:
-                                            text_prime[idx]=sym_wrd
-                                            bestsim=sem_sim
-                                            flg=1
-                        except ValueError:
-                            break
-                    if flg==1:
-                        backtrack_dic[(text_prime[idx],idx)]=target_word
-                        num_changed+=1
+                    ind=-1
                     
-                continue 
-         
+                    #Find the synonym replacing which changes the aggregate to misclassify
+                    if (1-orig_label) in preds4:
+                        flg=0
+                        ct1=preds4.count(int(1-orig_label))
+                        flag2=0
+                        bestsim=-1
+                        while flag2<ct1:
+            
+                                    ind=preds4.index(int(1-orig_label),ind+1)
+                                    flag2+=1
+                                    sym_wrd=synonyms[ind]
+                                    prd1=tmodel.getPredictions([' '.join(text_prime[:idx]+[sym_wrd]+text_prime[idx+1:])])[0]
+                                    new_rev=text_prime.copy()
+                                    new_rev[idx]=sym_wrd
+                                    orig_word=text_prime[idx]
+                                    orig_text_prime=' '.join(text_prime)
+                                    sem_sim=semantic_sim([' '.join(new_rev)],[orig_text_prime])
+                                    pos_tag_new=criteria.get_pos(new_rev)[idx]
+
+                                    if sem_sim>=sim_score_threshold and orig_pos==pos_tag_new:
+                                            if prd1==(1-orig_label):
+                                                    sel_word=sym_wrd
+                                                    flg=1
+                                                    misclassified=True
+                                                    break
+
+                                            elif sem_sim>bestsim:
+                                                sel_word=sym_wrd
+                                                bestsim=sem_sim
+                                                flg=1
+
+                                
+                        if flg==1:
+                            #change the target_word with sel_word at all the places in the review
+                            if not misclassified:
+                                for indx in word_idx_dic[str(target_word)]:
+
+                                    text_prime[indx]=sel_word
+                                    backtrack_dic[(sel_word,indx)]=target_word
+                                    num_changed+=1
+                            else:
+                                text_prime[idx]=sel_word
+                                backtrack_dic[(sel_word,idx)]=target_word
+                                num_changed+=1
+                            break
+
+                    continue
+                    
         
         text_prime=' '.join(text_prime)
         probs=tmodel.getPredictions([text_prime])
+        
         return text_prime, num_changed, orig_label,probs[0], num_queries
 
 def main():
