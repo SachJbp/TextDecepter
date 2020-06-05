@@ -110,7 +110,7 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                 sents_sentiment_dic[preds[i]].append(sents[i])
             else:
                 sents_sentiment_dic[preds[i]]=[sents[i]]
-
+                
         #get sentence importance ranking
         try:
             pos_aggregate=' '.join(sents_sentiment_dic[1-orig_label])
@@ -130,7 +130,6 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
             if p<=len(neg_sents):
                 for neg_sent_comb in combinations(neg_sents,p):
                     neg_agg=' '.join(list(neg_sent_comb))
-                    #print(neg_agg)
                     agg_=pos_aggregate + " " + neg_agg
                     
                     preds3=tmodel.getPredictions([agg_])[0]
@@ -166,7 +165,7 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
         for key in top_sent_imp:
                 for sent6 in top_sent_imp[key]:
                             imp_dic[sent6]=key
-            
+         
         #get word importance scores
         ind_count=0
         import_scores=[]
@@ -192,7 +191,6 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                                     word_agg_dic1[text_sent[i1]].append(sent_agg_dic.get(sent,[sent]))
                             else:
                                     word_agg_dic1[text_sent[i1]]=[sent_agg_dic.get(sent,[sent])]
-    
                         
 
         import_scores=np.array(import_scores)
@@ -202,14 +200,14 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
         text_prime = text_ls[:]
         import_scores=np.array(import_scores)
         imp_indxs=np.argsort(import_scores).tolist()
-        
+
         for idx in imp_indxs:
             try:
                 if not text_prime[idx] in stop_words_set:
                     words_perturb.append((idx, text_prime[idx]))
             except:
                 continue
-
+            
         # find synonyms
         words_perturb_idx = [word2idx[word] for idx, word in words_perturb if word in word2idx]
         synonym_words, _ = pick_most_similar_words_batch(words_perturb_idx, cos_sim, idx2word, synonym_num, syn_sim)
@@ -228,7 +226,7 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
         misclassified=False
         visited={}
         
-        #map the words to indices in text_prime
+        #map the words to list indices at which it is present in original (text_prime)
         word_idx_dic={}
         for idx in range(len(text_prime)):
             word=text_prime[idx]
@@ -246,7 +244,7 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                     continue
 
                 if misclassified:   #indicator of misclassification 
-                    #backtrack-> revert those replacements which were not necessary
+                    #backtrack: revert those replacements which were not necessary to make the adversary minimally perturbed
 
                     for (wrd,index) in backtrack_dic:
 
@@ -255,23 +253,18 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                         if pred==(1-orig_label):
                             text_prime[index]=backtrack_dic[(wrd,index)]
                             num_changed-=1
-                          
                     break
     
 
                 # Step#1: Find all aggregates(with orig_label) to which the target wrd belongs
-                
                 target_word=text_prime[idx]
                 
                 visited[target_word]=True
                 flg3=0
                 if target_word in word_agg_dic1:
                     if word_agg_dic1[target_word]==[]:
-        
                         word_agg_dic1.pop(target_word)
-
                     else:
-
                         agg_list=list(set(word_agg_dic1[target_word]))
                         word_agg_dic1[target_word]=[]
 
@@ -285,6 +278,7 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                             break
                     if flg3==0:
                         continue
+
                         
                 #Replace the word with all the synonyms
                 agg_with_synonyms=[[agg.replace(target_word,synonym) for synonym in synonyms] for agg in agg_list]
@@ -335,7 +329,6 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
                             #change the target_word with sel_word at all the places in the review
                             if not misclassified:
                                 for indx in word_idx_dic[str(target_word)]:
-
                                     text_prime[indx]=sel_word
                                     backtrack_dic[(sel_word,indx)]=target_word
                                     num_changed+=1
@@ -352,6 +345,7 @@ def attack(text_ls, true_label, cmodel, stop_words_set, word2idx, idx2word, cos_
         probs=tmodel.getPredictions([text_prime])
         
         return text_prime, num_changed, orig_label,probs[0], num_queries
+
 
 def main():
     parser = argparse.ArgumentParser()
