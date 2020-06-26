@@ -160,7 +160,7 @@ def create_one_batch(x, y, map2id, oov='<oov>'):
     x = [ map2id.get(w, oov_id) for seq in x for w in seq ]
     x = torch.LongTensor(x)
     assert x.size(0) == length*batch_size
-    return x.view(batch_size, length).t().contiguous(), torch.LongTensor(y)
+    return x.view(batch_size, length).t().contiguous().cuda(), torch.LongTensor(y).cuda()
 
 
 def create_one_batch_x(x, map2id, oov='<oov>'):
@@ -171,7 +171,7 @@ def create_one_batch_x(x, map2id, oov='<oov>'):
     x = [ map2id.get(w, oov_id) for seq in x for w in seq ]
     x = torch.LongTensor(x)
     assert x.size(0) == length*batch_size
-    return x.view(batch_size, length).t().contiguous()
+    return x.view(batch_size, length).t().contiguous().cuda()
 
 
 # shuffle training examples and create mini-batches
