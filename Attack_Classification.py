@@ -54,9 +54,14 @@ class model:
         return orig_label.tolist()
 
 def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label):
-
-        
   '''Computes importance ranking of sentences in the text
+  
+  Args:
+    sents_sentiment_dic (dict): Dictionary having sentences as keys and their predicted class as values
+    num_queries (int):  tracks the cumulative number of queries to the attack system
+    orig_label:
+    
+    
   '''
   
   orig_label_sents_list = sents_sentiment_dic[orig_label][:]
