@@ -2,11 +2,13 @@ import nltk
 import numpy as np
 import tensorflow_datasets as tfds
 import pattern
+import time
 import criteria
 import torch
 import dataloader
 import argparse
 import os
+import re
 from train_classifier import Model
 import random
 import tensorflow as tf
@@ -25,6 +27,11 @@ from compute_cos_sim_mat import compute_cos_sim_mat
 from generate_embedding_mat import generate_embedding_mat
 import LoadPretrainedBert
 import generateCosSimMat
+from google.cloud import language
+from google.cloud.language import enums
+from google.cloud.language import types
+
+
 
 nltk.download('universal_tagset')
 nltk.download('averaged_perceptron_tagger')
@@ -33,33 +40,56 @@ nltk.download('stopwords')
 
 
 class model:
-    def __init__(self,cmodel):
+    def __init__(self,cmodel = None, gcp = False , gcp_nlp_json_link = "" ):
         self.cmodel=cmodel
+        self.gcp = gcp
+        self.gcp_key = gcp_nlp_json_link
         
-    def getPredictions(revs):
+    def getPredictions(self, revs):
         ''' Prediction function for classsification task
 
         Arguments:
            revs: List of reviews
         '''
-        revs1=[rev.split() for rev in revs]
-        orig_probs=cmodel.text_pred(revs1).squeeze()
-        #print(orig_probs)
-        if len(revs)>1:
-            orig_label = torch.argmax(orig_probs,axis=1)
-        else:
-            orig_label = torch.argmax(orig_probs)
-            return [orig_label.tolist()]
+        if not self.gcp:
+            revs1=[rev.split() for rev in revs]
+            orig_probs = self.cmodel.text_pred(revs1).squeeze()
+            #print(orig_probs)
+            if len(revs)>1:
+                orig_label = torch.argmax(orig_probs,axis=1)
+            else:
+                orig_label = torch.argmax(orig_probs)
+                return [orig_label.tolist()]
+            
+            return orig_label.tolist()
         
-        return orig_label.tolist()
+        else:
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS']=self.gcp_key
+            client = language.LanguageServiceClient()
+            preds=[]
+            for rev in revs:
+              flag=0
+              document = types.Document(
+                  content=rev,
+                  type=enums.Document.Type.PLAIN_TEXT)
+              while flag==0:
+                try:
+                    sentiment = client.analyze_sentiment(document=document).document_sentiment
+                    preds.append(int(sentiment.score>0))  
+                    flag=1
+                except:
+                    time.sleep(63)
+            
+            return preds
+            
 
-def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label):
+def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmodel):
   '''Computes importance ranking of sentences in the text
   
   Args:
     sents_sentiment_dic (dict): Dictionary having sentences as keys and their predicted class as values
     num_queries (int):  tracks the cumulative number of queries to the attack system
-    orig_label:
+    orig_label: Original Predicted label of the text
     
     
   '''
@@ -135,6 +165,13 @@ def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label):
 def get_word_imp(origSents , orig_label_sents, sent2imp, sent2sent):
 
   '''Computes word importance scores
+
+  Args:
+      origSents: List of sentences in original text
+      orig_label_sents: List of sentences having predicted label same as the original label of the text
+      sent2imp: Dictionary mapping sentences to their importance ranking
+      sent2sent:  Dictionary mapping origSents to the sentence cluster to which it belongs ( We merge sentence in orig_sents
+                  to reduce length of origSents ,in case total sentences are above 12
   '''
   
   ind_count=0
@@ -175,16 +212,20 @@ def get_word_imp(origSents , orig_label_sents, sent2imp, sent2sent):
   return import_scores
 
 def vowel_correction(txt , idx):
-   ''' Corrects the grammer in case the word replacement involves changing from a word starting with a consonant 
-   to the one starting vowel or vice versa 
+   ''' Grammer correction after word replacement
+
+   Corrects the grammer in case the word replacement involves changing from a word starting with a consonant 
+   to the one starting vowel or vice versa
+
+   Args:
+       txt: Str, Given text
+       idx: Index before which the correction has to be done  
    '''
+   
    vowel = {'a','e','i','o','u'}
-   #print(txt)
-   #print(len(txt))
+
    if txt[idx][0].lower() in vowel and idx > 0:
-     #print("damn!")
      if txt[idx-1] == 'a':
-       #print("whew")
        txt[idx-1] = 'an'
    elif idx > 0:
      if txt[idx-1] == 'an':
@@ -192,10 +233,16 @@ def vowel_correction(txt , idx):
    
    return txt
 
-def get_semantic_sim_window(idx , half_sim_score_window , len_text ,sim_score_window):
-  
-  ''' Returns semantic similarity window 
+
+def get_semantic_sim_window(idx , len_text ,sim_score_window):
+  ''' Returns semantic similarity window
+
+     Args:
+         idx: index wrt which window needs to be returned
+         len_text: Number of words in original text
+         sim_score_window: Length of similarity score window
   '''
+  half_sim_score_window = (sim_score_window - 1) // 2
 
   if idx >= half_sim_score_window and len_text - idx - 1 >= half_sim_score_window:
     text_range_min = idx - half_sim_score_window
@@ -213,10 +260,8 @@ def get_semantic_sim_window(idx , half_sim_score_window , len_text ,sim_score_wi
   return text_range_min, text_range_max
 
 
-def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2word_vocab, cos_sim, pos_filter, sim_score_threshold=0.5, 
-           sim_score_window=15, synonym_num=50,syn_sim=0.75,):
-    
-
+def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2word_vocab, cos_sim, pos_filter, sim_score_threshold=0.5, 
+           sim_score_window=15, synonym_num=80,syn_sim=0.65,):
     '''Attack function
 
     Implementation of the attack algorithm 
@@ -238,7 +283,11 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
  
     '''
     
-
+    if gcp_nlp_json_link:
+        tmodel = model(gcp = True, gcp_nlp_json_link =gcp_nlp_json_link)
+    else:
+        tmodel = model(cmodel)
+        
     text_temp=text_ls[:]
     orig_label = tmodel.getPredictions([text_ls])[0]
   
@@ -251,7 +300,6 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
       len_text = len(text_ls)
       if len_text < sim_score_window:
           sim_score_threshold = 0.1  # shut down the similarity thresholding function
-      half_sim_score_window = (sim_score_window - 1) // 2
       num_queries = 1
       
       # get the pos info
@@ -275,7 +323,6 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
         if len(tokens)>4:
           sents=[str(tokens[i:i+4]) for i in range(0,len(tokens),4)]
 
-      #print(sents)
       #segregate positive and negative sentence
       preds=tmodel.getPredictions(list(sents))
       num_queries+=len(sents)
@@ -288,7 +335,7 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
           sents_sentiment_dic[-1].append(sents[i])
       
       #print(sents_sentiment_dic)
-      orig_sents_ln=len(sents)
+      orig_sents_ln = len(sents)
       origSents=sents[:]
       orig_label_sents=sents_sentiment_dic[orig_label][:]
       
@@ -316,7 +363,7 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
         sents_sentiment_dic[orig_label]=new_list
           
       #Get sentence importance ranking
-      top_sent_imp , word_agg_dic ,sent2imp, num_queries= get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label)
+      top_sent_imp , word_agg_dic ,sent2imp, num_queries= get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmodel)
       
       #Get word importance scores            
       import_scores = get_word_imp(origSents , orig_label_sents, sent2imp, sent2sent)
@@ -325,14 +372,10 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
       words_perturb = []
       text_prime = text_ls[:]
       imp_indxs=np.argsort(import_scores).tolist()
-      #print(len(text_prime))
-      #print(text_prime)
-      #print(len(imp_indxs))
+
       for idx in imp_indxs:
-        #print(idx)
         if not text_prime[idx] in stop_words_set:
           words_perturb.append((idx, text_prime[idx]))
-      #print(words_perturb)
 
       # find synonyms
       words_perturb_idx = [word2idx_rev[word] for idx, word in words_perturb if word in word2idx_rev]
@@ -375,7 +418,7 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
             
         if misclassified:
 
-          #backtrack
+          #backtrack to check for unnecessary perturbations
 
           for (wrd,index) in backtrack_dic:
             txt_temp = text_prime[:]
@@ -391,7 +434,7 @@ def attack(text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2
 
         if num_queries>=5000:
           break
-        text_range_min, text_range_max = get_semantic_sim_window(idx, half_sim_score_window, len_text,sim_score_window)
+        text_range_min, text_range_max = get_semantic_sim_window(idx, len_text,sim_score_window)
 
         # Step#1: Find all aggregates(with orig_label) to which the target wrd belongs
         
@@ -525,13 +568,27 @@ def main():
     parser.add_argument("--target_model",
                         type=str,
                         required=True,
-                        choices=['wordLSTM', 'bert', 'wordCNN'],
-                        help="Target models for text classification: fasttext, charcnn, word level lstm ")
+                        choices=['wordLSTM', 'bert', 'wordCNN','gcp'],
+                        help="Target models for text classification: wordcnn, word Lstm or GCP NLP API ")
+
+    
+    parser.add_argument("--gcp_nlp_json_link",
+                        type=str,
+                        required=False,
+                        default='',
+                        help="Link to GCP NLP API json key file")
+    
     parser.add_argument("--target_model_path",
                         type=str,
                         required=False,
                         default='',
                         help="pre-trained target model path")
+
+    parser.add_argument("--nclasses",
+                        type=int,
+                        default=2,
+                        help="How many classes for classification.")
+    
     parser.add_argument("--word_embeddings_path",
                         type=str,
                         default='word_embeddings_path/glove.6B.200d.txt',
@@ -541,11 +598,6 @@ def main():
                         required=False,
                         default="counter_fitting_embedding/counter-fitted-vectors.txt",
                         help="path to the counter-fitting embeddings used to find synonyms")
-    parser.add_argument("--counter_fitting_cos_sim_path",
-                        type=str,
-                        default='',
-                        required=False,
-                        help="pre-compute the cosine similarity scores based on the counter-fitting embeddings")
     
     parser.add_argument("--output_dir",
                         type=str,
@@ -556,51 +608,56 @@ def main():
                         type=str,
                         default='coarse',
                         help="pos filter mask: either 'fine' or 'coarse")
-    
+
     args = parser.parse_args()
     output_dir=args.output_dir
 
     #download data to be Attacked
     data=download_attack_data(args.dataset_path)
-
+    data=data[:10]
+    
     #find word2idx and idx2word dicts
     embeddings, word2idx_vocab, idx2word_vocab = generate_embedding_mat(args.counter_fitting_embeddings_path)
 
     #compute cosine similarity matrix of words in text
-    cos_sim , word2idx_rev, idx2word_rev = generateCosSimMat.csim_matrix(data)
+    cos_sim , word2idx_rev, idx2word_rev = generateCosSimMat.csim_matrix(data, embeddings, word2idx_vocab)
 
+    gcp_attack = False
     #Load the saved model using state dic
     if args.target_model=="wordCNN":
         default_model_path="saved_models/wordCNN/"
         if 'imdb' in args.dataset_path:
             default_model_path+='imdb'
-        elif 'yelp' in args.dataset_path:
-            default_model_path+='yelp'
+        elif 'mr' in args.dataset_path:
+            default_model_path+='mr'
             
-        cmodel = Model(args.word_embeddings_path, nclasses=2, hidden_size=100, cnn=True).cuda()
+        cmodel = Model(args.word_embeddings_path, nclasses = args.nclasses, hidden_size=100, cnn=True).cuda()
         
     elif args.target_model=="wordLSTM":
         default_model_path="saved_models/wordLSTM/"
         if 'imdb' in args.dataset_path:
             default_model_path+='imdb'
-        elif 'yelp' in args.dataset_path:
-            default_model_path+='yelp'
+        elif 'mr' in args.dataset_path:
+            default_model_path+='mr'
             
-        cmodel=Model(args.word_embeddings_path, nclasses=2, hidden_size=100, cnn=False).cuda()
+        cmodel=Model(args.word_embeddings_path, nclasses = args.nclasses, hidden_size=100, cnn=False).cuda()
 
     elif args.target_model=="bert":
         default_model_path="saved_models/bert/"
         if 'imdb' in args.dataset_path:
             default_model_path+='imdb'
-        elif 'yelp' in args.dataset_path:
-            default_model_path+='yelp'
+        elif 'mr' in args.dataset_path:
+            default_model_path+='mr'
         if args.target_model_path: 
-            cmodel=LoadPretrainedBert.loadPretrainedModel(args.target_model_path,nclasses=2)
+            cmodel=LoadPretrainedBert.loadPretrainedModel(args.target_model_path,nclasses = args.nclasses)
         else:
-            cmodel=LoadPretrainedBert.loadPretrainedModel(default_model_path,nclasses=2)
+            cmodel=LoadPretrainedBert.loadPretrainedModel(default_model_path,nclasses = args.nclasses)
 
-    if args.target_model!='bert':
+    elif args.target_model=="gcp":
+        cmodel = None
         
+
+    if args.target_model!='bert' and args.target_model!='gcp':
         #load checkpoints
         if args.target_model_path:
             checkpoint = torch.load(args.target_model_path,map_location=torch.device('cuda:0'))
@@ -610,8 +667,6 @@ def main():
         cmodel.load_state_dict(checkpoint)
 
     
-    
-    data=data[:10]
     orig_failures = 0.
     adv_failures = 0.
     changed_rates = []
@@ -631,23 +686,16 @@ def main():
     print('Start attacking!')
     ct=0
     #tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-    pos_filter = 'coarse'
+    pos_filter = args.pos_filter
     random_atk = False
-    for idx, (text, true_label) in enumerate(data2):
+    for idx, (text, true_label) in enumerate(data):
       ct+=1    
       print(idx)
       if idx % 20 == 0:
         print('{} samples out of {} have been finished!'.format(idx, size))
 
-      if random_atk == True:
         new_text, num_changed, orig_label, \
-        new_label, num_queries= random_attack(text, true_label, stop_words_set,
-                                                word2idx_rev, idx2word_rev, idx2word_vocab, cos_sim, pos_filter,
-                                                synonym_num=80,sim_score_threshold=sim_score_threshold ,  
-                                                syn_sim=0.65)
-      else:
-        new_text, num_changed, orig_label, \
-        new_label, num_queries= attack(text, true_label, stop_words_set,
+        new_label, num_queries= attack(cmodel, args.gcp_nlp_json_link, text, true_label, stop_words_set,
                                                 word2idx_rev, idx2word_rev, idx2word_vocab, cos_sim, pos_filter,
                                                 synonym_num=80,sim_score_threshold=sim_score_threshold ,  
                                                 syn_sim=0.65)

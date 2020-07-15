@@ -1,11 +1,13 @@
 import numpy as np
+import spacy
+from nltk.corpus import stopwords
 
-def csim_matrix(lst_revs):
+def csim_matrix(lst_revs ,embeddings, word2idx_vocab):
   ''' Create a cosine similarity matrix only for words in reviews
 
   Identify all the words in the reviews that are not stop words
   Use embedding matrix to create a cosine similarity submatrix just for these words
-  columns of this cosine similarity matrix correspond to the original words in the embedding
+  Columns of this cosine similarity matrix correspond to the original words in the embedding
   rows of the matrix correspond to the words in the reviews
   '''
   nlp = spacy.load('en')
@@ -21,7 +23,7 @@ def csim_matrix(lst_revs):
   p=0
   embeddings_rev_words=[]
   for word in all_words:
-    word2idx_rev[str(word)]=p
+    word2idx_rev[str(word)] = p
     idx2word_rev[p]=str(word)
     p+=1
     embeddings_rev_words.append(embeddings[word2idx_vocab[str(word)]])
