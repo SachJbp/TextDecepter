@@ -12,9 +12,8 @@ def download_attack_data(filepath):
             
         tokenizer = RegexpTokenizer(r'\w+')
         tokens = tokenizer.tokenize(txt)
-        if len(list(tokens))<350:
-            labels.append(int(line[0]))
-            texts.append(line[2:])
+        labels.append(int(line[0]))
+        texts.append(line[2:])
         
         
         line=file.readline()

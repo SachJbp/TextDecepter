@@ -90,8 +90,7 @@ def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmod
     sents_sentiment_dic (dict): Dictionary having sentences as keys and their predicted class as values
     num_queries (int):  tracks the cumulative number of queries to the attack system
     orig_label: Original Predicted label of the text
-    
-    
+      
   '''
   
   orig_label_sents_list = sents_sentiment_dic[orig_label][:]
@@ -123,7 +122,7 @@ def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmod
           for i in range(2):
             for l in range(len(sents_sentiment_dic[-1])):
               num_queries+=1
-              if tmodel.getPredictions([agg_+" "+ sents_sentiment_dic[-1][l]])[0]==orig_label:
+              if tmodel.getPredictions([agg_+ " " + sents_sentiment_dic[-1][l]])[0]==orig_label:
                 agg_ += sents_sentiment_dic[-1][l]
               else:
                 flg6=1
@@ -163,7 +162,6 @@ def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmod
   return top_sent_imp , word_agg_dic , sent2imp ,num_queries
 
 def get_word_imp(origSents , orig_label_sents, sent2imp, sent2sent):
-
   '''Computes word importance scores
 
   Args:
@@ -268,7 +266,6 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
 
     Takes in a text and makes it adversarial 
     
-
     Arguments:
         text_ls: str, the text to be attacked
         true_label: int, representing true class of text_ls
@@ -284,7 +281,7 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
     '''
     
     if gcp_nlp_json_link:
-        tmodel = model(gcp = True, gcp_nlp_json_link =gcp_nlp_json_link)
+        tmodel = model(gcp = True, gcp_nlp_json_link = gcp_nlp_json_link)
     else:
         tmodel = model(cmodel)
         
@@ -500,7 +497,7 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
         #Check if any synonym is able make the any sentence, which originally had the same label as the orig_label of the review,
         #to misclassify
     
-        if not changed and len(orig_sentiment_sent)>0:
+        if not changed and len(orig_sentiment_sent) > 0:
           #print("len sents: ",len(orig_sentiment_sent))
         
           sents_with_syns1 = [[re.sub(r'\b{}\s+{}\b'.format('a',target_word),'an '+ syn,sent)  
@@ -515,7 +512,7 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
           
           for i in range(len(sents_with_syns)):
             num_queries+=len(sents_with_syns[i])
-            if tmodel.getPredictions(sents_with_syns[i]).count(orig_label)<len(sents_with_syns[i]):
+            if tmodel.getPredictions(sents_with_syns[i]).count(orig_label) < len(sents_with_syns[i]):
               changed=True
               sel_sym=synonyms_sorted[i]
               break
@@ -551,9 +548,9 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
             backtrack_dic[(sel_sym,indx)] = target_word
             num_changed+=1
     #print(num_changed)            
-    text_prime=' '.join(text_prime)
+    text_prime = ' '.join(text_prime)
     probs = tmodel.getPredictions([text_prime])
-    return text_prime, num_changed, orig_label,probs[0], num_queries
+    return text_prime, num_changed, orig_label, probs[0], num_queries
 
 
 def main():
@@ -610,11 +607,11 @@ def main():
                         help="pos filter mask: either 'fine' or 'coarse")
 
     args = parser.parse_args()
-    output_dir=args.output_dir
+    output_dir = args.output_dir
 
     #download data to be Attacked
     data=download_attack_data(args.dataset_path)
-    data=data[:10]
+    data = data[100:200]
     
     #find word2idx and idx2word dicts
     embeddings, word2idx_vocab, idx2word_vocab = generate_embedding_mat(args.counter_fitting_embeddings_path)
@@ -640,7 +637,7 @@ def main():
         elif 'mr' in args.dataset_path:
             default_model_path+='mr'
             
-        cmodel=Model(args.word_embeddings_path, nclasses = args.nclasses, hidden_size=100, cnn=False).cuda()
+        cmodel=Model(args.word_embeddings_path, nclasses = args.nclasses, cnn=False).cuda()
 
     elif args.target_model=="bert":
         default_model_path="saved_models/bert/"
@@ -660,9 +657,10 @@ def main():
     if args.target_model!='bert' and args.target_model!='gcp':
         #load checkpoints
         if args.target_model_path:
-            checkpoint = torch.load(args.target_model_path,map_location=torch.device('cuda:0'))
+            print("target model path")          
+            checkpoint = torch.load(args.target_model_path, map_location=torch.device('cuda:0'))
         else:
-            checkpoint = torch.load(default_model_path,map_location=torch.device('cuda:0'))
+            checkpoint = torch.load(default_model_path, map_location=torch.device('cuda:0'))
             
         cmodel.load_state_dict(checkpoint)
 
@@ -675,14 +673,14 @@ def main():
     adv_texts = []
     true_labels = []
     new_labels = []
-    sem_sim=[]
+    sem_sim = []
     log_file = open(os.path.join(args.output_dir,'results_log'), 'a')
     stop_words_set = criteria.get_stopwords()
-    true_label=1
-    predictor=1
-    sim_score_threshold=0.5
-    perturb_ratio=0.4
-    size=len(data)
+    true_label = 1
+    predictor = 1
+    sim_score_threshold = 0.5
+    perturb_ratio = 0.4
+    size = len(data)
     print('Start attacking!')
     ct=0
     #tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
@@ -694,10 +692,10 @@ def main():
       if idx % 20 == 0:
         print('{} samples out of {} have been finished!'.format(idx, size))
 
-        new_text, num_changed, orig_label, \
-        new_label, num_queries= attack(cmodel, args.gcp_nlp_json_link, text, true_label, stop_words_set,
+      new_text, num_changed, orig_label, \
+      new_label, num_queries = attack(cmodel, args.gcp_nlp_json_link, text, true_label, stop_words_set,
                                                 word2idx_rev, idx2word_rev, idx2word_vocab, cos_sim, pos_filter,
-                                                synonym_num=80,sim_score_threshold=sim_score_threshold ,  
+                                                synonym_num=80, sim_score_threshold=sim_score_threshold ,  
                                                 syn_sim=0.65)
 
       #print(text)    
