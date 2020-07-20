@@ -11,11 +11,11 @@ Follow the steps to run the attack algorithm
 
 4) Use the following syntax to run the attack algorithm
 
->!python Attack_Classification.py --dataset_path "data/imdb.txt" --target_model 'wordCNN'
+>!python Attack_Classification.py --dataset_path 'data/imdb.txt' --target_model 'bert' --counter_fitting_embeddings_path "counter_fitting_embedding/counter-fitted-vectors.txt" --target_model_path "saved_models/bert/imdb" --word_embeddings_path "word_embeddings_path/glove.6B.200d.txt" --output_dir "adv_results" --pos_filter "coarse"
 
-dataset_path can be either "data/imdb.txt" or "data/yelp.txt" 
+dataset_path can be either "data/imdb.txt" or "data/mr.txt" 
 
-target_model can be either wordCNN or wordLSTM
+target_model can be either wordCNN , wordLSTM, bert or gcp
 
 
 
