@@ -1,5 +1,5 @@
 # Hard-Label-Black-Box-Attack-on-NLP
-Hard Label Black Box attack on NLP
+TextDecepter: Hard Label Black Box attack on NLP
 
 Follow the steps to run the attack algorithm
 
