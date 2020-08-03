@@ -32,7 +32,6 @@ from google.cloud.language import enums
 from google.cloud.language import types
 
 
-
 nltk.download('universal_tagset')
 nltk.download('averaged_perceptron_tagger')
 nltk.download('punkt')
@@ -611,7 +610,6 @@ def main():
 
     #download data to be Attacked
     data=download_attack_data(args.dataset_path)
-    data = data[100:200]
     
     #find word2idx and idx2word dicts
     embeddings, word2idx_vocab, idx2word_vocab = generate_embedding_mat(args.counter_fitting_embeddings_path)
