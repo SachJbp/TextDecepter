@@ -19,6 +19,8 @@ dataset_path can be either "data/imdb.txt" or "data/mr.txt"
 
 target_model can be either wordCNN , wordLSTM, bert or gcp
 
+The result files can be accessed from [Google Drive link](https://drive.google.com/drive/folders/10QbZ10zFiyxP-Z8AwbckalWNew1x54cG?usp=sharing) 
+
 
 
 
