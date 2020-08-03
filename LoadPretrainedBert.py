@@ -6,14 +6,11 @@ import dataloader
 from train_classifier import Model
 import criteria
 import random
-
 import tensorflow as tf
 import tensorflow_hub as hub
-
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, SequentialSampler, TensorDataset
-
 from BERT.tokenization import BertTokenizer
 from BERT.modeling import BertForSequenceClassification, BertConfig
 
