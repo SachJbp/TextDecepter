@@ -1,6 +1,8 @@
 # Hard-Label-Black-Box-Attack-on-NLP
 TextDecepter: Hard Label Black Box attack on NLP
 
+Note: The pretrained target models have been taken from [Textfooler] (https://github.com/jind11/TextFooler)
+
 Follow the steps to run the attack algorithm
 
 1) Download the [counter-fitted-vectors.txt](https://drive.google.com/open?id=1JXznRuK-tfewW_KyNMuTElSa0JxXCkCx) and put it in counter_fitting_embedding folder
