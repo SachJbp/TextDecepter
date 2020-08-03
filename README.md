@@ -1,7 +1,7 @@
 # Hard-Label-Black-Box-Attack-on-NLP
 TextDecepter: Hard Label Black Box attack on NLP
 
-Note: The pretrained target models have been taken from [Textfooler] (https://github.com/jind11/TextFooler)
+Note: The pretrained target models, and a few helper functions have been taken from [Textfooler] (https://github.com/jind11/TextFooler)
 
 Follow the steps to run the attack algorithm
 
