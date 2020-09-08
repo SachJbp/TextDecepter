@@ -21,7 +21,7 @@ target_model can be either wordCNN , wordLSTM, bert or gcp
 
 The result files can be accessed from [Google Drive link](https://drive.google.com/drive/folders/10QbZ10zFiyxP-Z8AwbckalWNew1x54cG?usp=sharing) 
 
-#If you use the code for your project /research please cite the paper 
+# If you use the code for your project /research please cite the paper 
 
 
 '''
