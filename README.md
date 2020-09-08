@@ -23,17 +23,14 @@ The result files can be accessed from [Google Drive link](https://drive.google.c
 
 #If you use the code for your project /research please cite the paper 
 
->@article{saxena2020textdecepter, 
-
->  title={TextDecepter: Hard Label Black Box Attack on Text Classifiers},
-
->  author={Saxena, Sachin},
-
->  journal={arXiv preprint arXiv:2008.06860},
-
->  year={2020}
-
->}
+'''
+@article{saxena2020textdecepter, 
+title={TextDecepter: Hard Label Black Box Attack on Text Classifiers},
+author={Saxena, Sachin},
+journal={arXiv preprint arXiv:2008.06860},
+year={2020}
+}
+'''
 
 
 
