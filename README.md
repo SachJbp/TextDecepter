@@ -31,8 +31,7 @@ title={TextDecepter: Hard Label Black Box Attack on Text Classifiers},
 author={Saxena, Sachin},
 journal={arXiv preprint arXiv:2008.06860},
 year={2020}
-}
->
+} .>
 '''
 
 
