@@ -39,47 +39,59 @@ nltk.download('stopwords')
 
 
 class model:
+  '''Class to Encapsulate Text Classification model usage 
+  '''
+  
     def __init__(self,cmodel = None, gcp = False , gcp_nlp_json_link = "" ):
-        self.cmodel=cmodel
-        self.gcp = gcp
-        self.gcp_key = gcp_nlp_json_link
+      '''Constructs all the necessary attributes for the Model object.
+      
+      Args:
+        cmodel (obj): Text Classification model object
+        gcp (bool):  Whether to attack Google Cloud Platform (GCP) Text classification model
+        gcp_nlp_json_link (str): GCP NLP Key Json file link
+
+      '''
+      self.cmodel=cmodel
+      self.gcp = gcp
+      self.gcp_key = gcp_nlp_json_link
         
     def getPredictions(self, revs):
-        ''' Prediction function for classsification task
+      '''Prediction function for Text classsification task
 
-        Arguments:
-           revs: List of reviews
-        '''
-        if not self.gcp:
-            revs1=[rev.split() for rev in revs]
-            orig_probs = self.cmodel.text_pred(revs1).squeeze()
-            #print(orig_probs)
-            if len(revs)>1:
-                orig_label = torch.argmax(orig_probs,axis=1)
-            else:
-                orig_label = torch.argmax(orig_probs)
-                return [orig_label.tolist()]
-            
-            return orig_label.tolist()
-        
+      Args:
+        revs (list): List of reviews
+
+      '''
+      if not self.gcp:
+        revs1=[rev.split() for rev in revs]
+        orig_probs = self.cmodel.text_pred(revs1).squeeze()
+        #print(orig_probs)
+        if len(revs)>1:
+          orig_label = torch.argmax(orig_probs,axis=1)
         else:
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS']=self.gcp_key
-            client = language.LanguageServiceClient()
-            preds=[]
-            for rev in revs:
-              flag=0
-              document = types.Document(
-                  content=rev,
-                  type=enums.Document.Type.PLAIN_TEXT)
-              while flag==0:
-                try:
-                    sentiment = client.analyze_sentiment(document=document).document_sentiment
-                    preds.append(int(sentiment.score>0))  
-                    flag=1
-                except:
-                    time.sleep(63)
-            
-            return preds
+          orig_label = torch.argmax(orig_probs)
+          return [orig_label.tolist()]
+        
+        return orig_label.tolist()
+      
+      else:
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS']=self.gcp_key
+        client = language.LanguageServiceClient()
+        preds=[]
+        for rev in revs:
+          flag=0
+          document = types.Document(
+              content=rev,
+              type=enums.Document.Type.PLAIN_TEXT)
+          while flag==0:
+            try:
+              sentiment = client.analyze_sentiment(document=document).document_sentiment
+              preds.append(int(sentiment.score>0))  
+              flag=1
+            except:
+              time.sleep(63)
+          
+          return preds
             
 
 def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmodel):
@@ -88,70 +100,56 @@ def get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmod
   Args:
     sents_sentiment_dic (dict): Dictionary having sentences as keys and their predicted class as values
     num_queries (int):  tracks the cumulative number of queries to the attack system
-    orig_label: Original Predicted label of the text
+    orig_label (int): Original Predicted label of the text 
       
   '''
   
   orig_label_sents_list = sents_sentiment_dic[orig_label][:]
-  try:
-    pos_aggregate=' '.join(sents_sentiment_dic[-1])
-  except:
-    pos_aggregate=""
-    
-  p=0
+  other_label_sents_str = ' '.join(sents_sentiment_dic[-1])
+      
+  imp_level = 0
   top_sent_imp = {}
   agg_imp_dic = {}
   word_agg_dic = {}
   sent_agg_dic = {}
 
-  while len(orig_label_sents_list)!=0:
-    p+=1
-    top_sent_imp[p]=[]
-    if p<=len(orig_label_sents_list):
-      for orig_label_sent_comb in combinations(orig_label_sents_list,p):
-        if num_queries>=5000:
+  while len(orig_label_sents_list) != 0:
+    imp_level +=1
+    top_sent_imp[imp_level] = []
+
+    if imp_level <= len(orig_label_sents_list):
+      for orig_label_sent_comb in combinations(orig_label_sents_list,imp_level):
+        if num_queries >= 5000:
           break
-        neg_agg=' '.join(list(orig_label_sent_comb))
-        agg_=pos_aggregate + " " + neg_agg
-               
-        preds3=tmodel.getPredictions([agg_])[0]
+        orig_label_sents_str = ' '.join(list(orig_label_sent_comb))
+        aggregate_str = other_label_sents_str + " " + orig_label_sents_str       
+        aggregate_pred = tmodel.getPredictions([aggregate_str])[0]
         num_queries+=1
-        if preds3==orig_label:
-          flg6=0 
-          for i in range(2):
-            for l in range(len(sents_sentiment_dic[-1])):
-              num_queries+=1
-              if tmodel.getPredictions([agg_+ " " + sents_sentiment_dic[-1][l]])[0]==orig_label:
-                agg_ += sents_sentiment_dic[-1][l]
+
+        if aggregate_pred == orig_label:
+          top_sent_imp[imp_level].extend(list(orig_label_sent_comb))
+          conv_set = set(top_sent_imp[imp_level])
+          top_sent_imp[imp_level]=list(conv_set)
+          agg_imp_dic[aggregate_str]=orig_label
+          tokenizer = RegexpTokenizer(r'\w+')
+          text_tokens = tokenizer.tokenize(aggregate_str)
+                
+          for word in text_tokens:
+            if len(word) > 1:
+              if word in word_agg_dic:
+                word_agg_dic[word].append(aggregate_str)
               else:
-                flg6=1
-                break
-            if flg6==1:
-              break
+                word_agg_dic[word] = [aggregate_str]
 
-            top_sent_imp[p].extend(list(orig_label_sent_comb))
-            conv_set=set(top_sent_imp[p])
-            top_sent_imp[p]=list(conv_set)
-            agg_imp_dic[agg_]=orig_label
-            tokenizer = RegexpTokenizer(r'\w+')
-            text_tokens = tokenizer.tokenize(agg_)
-                  
-            for word in text_tokens:
-              if len(word)>1:
-                if word in word_agg_dic:
-                  word_agg_dic[word].append(agg_)
-                else:
-                  word_agg_dic[word]=[agg_]
-
-          
-            if len(top_sent_imp[p])!=0:
-              for sent in top_sent_imp[p]:
-                if sent in orig_label_sents_list:
-                  del orig_label_sents_list[orig_label_sents_list.index(sent)]
+          if len(top_sent_imp[imp_level])!=0:
+            for sent in top_sent_imp[imp_level]:
+              if sent in orig_label_sents_list:
+                del orig_label_sents_list[orig_label_sents_list.index(sent)]
     else:
-      top_sent_imp[p].extend(list(orig_label_sents_list))
+      top_sent_imp[imp_level].extend(list(orig_label_sents_list))
       orig_label_sents_list=[]
       break
+
   #create sent2imp dictionary
   sent2imp={}
   for key in top_sent_imp:
@@ -164,26 +162,25 @@ def get_word_imp(origSents , orig_label_sents, sent2imp, sent2sent):
   '''Computes word importance scores
 
   Args:
-      origSents: List of sentences in original text
-      orig_label_sents: List of sentences having predicted label same as the original label of the text
-      sent2imp: Dictionary mapping sentences to their importance ranking
-      sent2sent:  Dictionary mapping origSents to the sentence cluster to which it belongs ( We merge sentence in orig_sents
-                  to reduce length of origSents ,in case total sentences are above 12
+    origSents (list): List of sentences in original text
+    orig_label_sents (list): List of sentences having predicted label same as the original label of the text
+    sent2imp (dict): Dictionary mapping sentences to their importance ranking
+    sent2sent (dict):  Dictionary mapping origSents to the sentence cluster to which it belongs ( We merge sentence in orig_sents
+                to reduce length of origSents ,in case total sentences are above 12
   '''
   
-  ind_count=0
-  import_scores=[]
+  ind_count = 0
+  import_scores = []
   nlp = spacy.load('en')
-  t=[]
+  
   for sent in origSents:
     
     if not " " in str(sent):
-      text_sent=[str(sent)]
+      text_sent = [str(sent)]
     else:
       text_tokens = nlp(sent)
       text_sent = [str(word) for word in text_tokens]
 
-    t+=text_sent
     if not sent in orig_label_sents:
       import_scores.extend([300]*len(text_sent))
     else:                                 
@@ -204,19 +201,20 @@ def get_word_imp(origSents , orig_label_sents, sent2imp, sent2sent):
         else:
           import_scores.append(sent_imp+50)
                   
-  import_scores=np.array(import_scores)
-  #print(t)
+  import_scores = np.array(import_scores)
+
   return import_scores
 
 def vowel_correction(txt , idx):
-   ''' Grammer correction after word replacement
+   '''Grammer correction after word replacement
 
    Corrects the grammer in case the word replacement involves changing from a word starting with a consonant 
    to the one starting vowel or vice versa
 
    Args:
-       txt: Str, Given text
-       idx: Index before which the correction has to be done  
+    txt: Str, Given text
+    idx: Index before which the correction has to be done  
+   
    '''
    
    vowel = {'a','e','i','o','u'}
@@ -232,12 +230,13 @@ def vowel_correction(txt , idx):
 
 
 def get_semantic_sim_window(idx , len_text ,sim_score_window):
-  ''' Returns semantic similarity window
+  '''Returns semantic similarity window
 
-     Args:
-         idx: index wrt which window needs to be returned
-         len_text: Number of words in original text
-         sim_score_window: Length of similarity score window
+  Args:
+    idx: index wrt which window needs to be returned
+    len_text: Number of words in original text
+    sim_score_window: Length of similarity score window
+  
   '''
   half_sim_score_window = (sim_score_window - 1) // 2
 
@@ -258,44 +257,42 @@ def get_semantic_sim_window(idx , len_text ,sim_score_window):
 
 
 def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2idx_rev, idx2word_rev, idx2word_vocab, cos_sim, pos_filter, sim_score_threshold=0.5, 
-           sim_score_window=15, synonym_num=80,syn_sim=0.65,):
+           sim_score_window=15, synonym_num=80,syn_sim=0.65):
     '''Attack function
 
     Implementation of the attack algorithm 
-
-    Takes in a text and makes it adversarial 
     
-    Arguments:
-        text_ls: str, the text to be attacked
-        true_label: int, representing true class of text_ls
-        cmodel: Model to be attacked
-        cos_sim: numpy array, precomuted cosine similarity square matrix
-        word2idx: dict mapping words to indices in the precomuted cosine similarity square matrix
-        idx2word: dict mapping indices of precomuted cosine similarity square matrix back to words
-        sim_score_threshold: float,semantic similarity threshold while selecting or rejecting synonyms,default:0.5
-        sim_score_window: int,window size for computing semantic similarity between actual and perturbed text around the perturbed word
-        synonym_num: int,max number of candidate synonyms to be analysed
-        syn_sim: float, threshold for cosine similarity between candidate synonyms and original word,defualt:0.75 
- 
+    Args:
+      text_ls (str): Text to be attacked
+      true_label (int): True class of text_ls
+      cmodel (Model obj): Model to be attacked
+      cos_sim (numpy array): numpy array, precomuted cosine similarity square matrix
+      word2idx (dict): Mapping words to indices in the precomuted cosine similarity square matrix
+      idx2word (dict): Mapping indices of precomuted cosine similarity square matrix back to words
+      sim_score_threshold (float): Semantic similarity threshold while selecting or rejecting synonyms,default:0.5
+      sim_score_window (int): Window size for computing semantic similarity between actual and perturbed text around the perturbed word
+      synonym_num (int): Max number of candidate synonyms to be analysed
+      syn_sim (float): Threshold for cosine similarity between candidate synonyms and original word,defualt:0.75 
+      gcp_nlp_json_link (str) : Google Cloud Platform NLP API JSON key file link
     '''
     
     if gcp_nlp_json_link:
-        tmodel = model(gcp = True, gcp_nlp_json_link = gcp_nlp_json_link)
+      tmodel = model(gcp = True, gcp_nlp_json_link = gcp_nlp_json_link)
     else:
-        tmodel = model(cmodel)
+      tmodel = model(cmodel)
         
-    text_temp=text_ls[:]
+    text_temp = text_ls[:]
     orig_label = tmodel.getPredictions([text_ls])[0]
   
     if true_label != orig_label:
       return '', 0, orig_label, orig_label, 0
     else:
       nlp = spacy.load('en')
-      doc=nlp(str(text_ls))
-      text_ls=[str(j) for j in doc]
+      doc = nlp(str(text_ls))
+      text_ls = [str(j) for j in doc]
       len_text = len(text_ls)
       if len_text < sim_score_window:
-          sim_score_threshold = 0.1  # shut down the similarity thresholding function
+        sim_score_threshold = 0.1  # shut down the similarity thresholding function
       num_queries = 1
       
       # get the pos info
@@ -312,20 +309,20 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
       sents=[str(sent) for sent in sents1]
     
       #print(sents      
-      if len(sents)==1:
-        sent=sents[0]
-        tokens=nlp(sent)
-        a=len(tokens)//2
-        if len(tokens)>4:
-          sents=[str(tokens[i:i+4]) for i in range(0,len(tokens),4)]
+      if len(sents) == 1:
+        sent = sents[0]
+        tokens = nlp(sent)
+        a = len(tokens)//2
+        if len(tokens) > 4:
+          sents = [str(tokens[i:i+4]) for i in range(0,len(tokens),4)]
 
       #segregate positive and negative sentence
-      preds=tmodel.getPredictions(list(sents))
-      num_queries+=len(sents)
-      sents_sentiment_dic[orig_label]=[]
-      sents_sentiment_dic[-1]=[]
+      preds = tmodel.getPredictions(list(sents))
+      num_queries += len(sents)
+      sents_sentiment_dic[orig_label] = []
+      sents_sentiment_dic[-1] = []
       for i in range(len(preds)):
-        if preds[i]==orig_label:
+        if preds[i] == orig_label:
           sents_sentiment_dic[orig_label].append(sents[i])
         else:
           sents_sentiment_dic[-1].append(sents[i])
@@ -337,9 +334,9 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
       
       #curtail orig label sentences
       sent2sent = {}
-      if len(orig_label_sents)>12:
-        ln=len(orig_label_sents)
-        mult=int(np.ceil(ln/12))
+      if len(orig_label_sents) > 12:
+        ln = len(orig_label_sents)
+        mult = int(np.ceil(ln/12))
         new_list=[]
         for q in range(0,ln,mult):
           if q+mult < ln:
@@ -348,18 +345,18 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
             new_list.append(new_sent_str)
           else:
             new_sent_list=sents_sentiment_dic[orig_label][q:]
-            new_sent_str=' '.join(new_sent_list)
+            new_sent_str = ' '.join(new_sent_list)
             new_list.append(new_sent_str)
 
           for snt in new_sent_list:
-            sent2sent[snt]=new_sent_str
+            sent2sent[snt] = new_sent_str
             sents.remove(snt)
 
           sents.append(new_sent_str)
-        sents_sentiment_dic[orig_label]=new_list
+        sents_sentiment_dic[orig_label] = new_list
           
       #Get sentence importance ranking
-      top_sent_imp , word_agg_dic ,sent2imp, num_queries= get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmodel)
+      top_sent_imp , word_agg_dic ,sent2imp, num_queries = get_sentence_imp_ranking(sents_sentiment_dic , num_queries, orig_label, tmodel)
       
       #Get word importance scores            
       import_scores = get_word_imp(origSents , orig_label_sents, sent2imp, sent2sent)
@@ -367,7 +364,7 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
       # get words to perturb ranked by importance score for word in words_perturb
       words_perturb = []
       text_prime = text_ls[:]
-      imp_indxs=np.argsort(import_scores).tolist()
+      imp_indxs = np.argsort(import_scores).tolist()
 
       for idx in imp_indxs:
         if not text_prime[idx] in stop_words_set:
@@ -385,24 +382,24 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
 
       # start replacing and attacking
       num_changed = 0
-      idx_flag=0
-      backtrack_dic={}
-      flg=0
-      misclassified=False
-      visited={}
+      idx_flag = 0
+      backtrack_dic = {}
+      flg = 0
+      misclassified = False
+      visited = {}
       
       #map the words to indices in text_prime
-      word_idx_dic={}
+      word_idx_dic = {}
       for idx in range(len(text_prime)):
         word=text_prime[idx]
         if word in word_idx_dic:
           word_idx_dic[word].append(idx)
         else:
-          word_idx_dic[word]=[idx]
-        visited[word]=False
+          word_idx_dic[word] = [idx]
+        visited[word] = False
       
-      origtext_prime=text_prime.copy()
-      len_text=len(text_prime)
+      origtext_prime = text_prime.copy()
+      len_text = len(text_prime)
 
 
       for idx, synonyms in synonyms_all:
@@ -421,7 +418,7 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
             txt_temp[index] = backtrack_dic[(wrd,index)]
             txt_temp = vowel_correction(txt_temp ,index)
             pred = tmodel.getPredictions([' '.join(txt_temp)])[0]
-            num_queries+=1
+            num_queries += 1
  
             if pred!=orig_label:
               text_prime = txt_temp[:]
@@ -437,27 +434,27 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
         target_word = text_prime[idx]
         visited[target_word] = True
 
-        agg_list=[]
+        agg_list = []
         if target_word in word_agg_dic:
-          agg_list=list(set(word_agg_dic[target_word]))
-          word_agg_dic[target_word]=[]
+          agg_list = list(set(word_agg_dic[target_word]))
+          word_agg_dic[target_word] = []
 
-        orig_sentiment_sent=[]
+        orig_sentiment_sent = []
         for sent1 in sents_sentiment_dic[orig_label]:
           if target_word in sent1 and not sent1 in agg_list:
             orig_sentiment_sent.append(sent1)
           
         #Check if any synonym is able make the entire review/text misclassify
         if pos_filter == 'fine':
-            new_pos=np.array([nltk.pos_tag(text_prime[:idx]+[syn]+text_prime[idx+1:])[idx][1] for syn in synonyms])
+          new_pos = np.array([nltk.pos_tag(text_prime[:idx]+[syn]+text_prime[idx+1:])[idx][1] for syn in synonyms])
         else:
-            new_pos=np.array([criteria.get_pos(text_prime[:idx]+[syn]+text_prime[idx+1:])[idx] for syn in synonyms])
-        pos_mask=(new_pos==(pos_ls[idx])).astype(int)
+          new_pos = np.array([criteria.get_pos(text_prime[:idx]+[syn]+text_prime[idx+1:])[idx] for syn in synonyms])
+        pos_mask = (new_pos==(pos_ls[idx])).astype(int)
         
-        rev_with_syns1=[text_prime[:idx]+[syn]+text_prime[idx+1:] for syn in synonyms]
-        sem_sims1=np.array([semantic_sim([' '.join(rev_with_syn[text_range_min:text_range_max])],[' '.join(text_prime[text_range_min:text_range_max])])
+        rev_with_syns1 = [text_prime[:idx]+[syn]+text_prime[idx+1:] for syn in synonyms]
+        sem_sims1 = np.array([semantic_sim([' '.join(rev_with_syn[text_range_min:text_range_max])],[' '.join(text_prime[text_range_min:text_range_max])])
                       for rev_with_syn in rev_with_syns1])
-        sem_sim_mask=(sem_sims1>=sim_score_threshold).astype(int)
+        sem_sim_mask = (sem_sims1>=sim_score_threshold).astype(int)
     
         #apply pos and semantic similarity masks to synonyms
         synonyms_masked = [synonyms[i] for i in range(len(synonyms)) if pos_mask[i]==1 and sem_sim_mask[i]==1]
@@ -484,11 +481,11 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
         changed=False
 
         for i in range(len(revs_with_synonyms)):
-          num_queries+=1
+          num_queries += 1
           pred = tmodel.getPredictions([revs_with_synonyms[i]])[0]
-          if pred!=orig_label:
-            changed=True
-            sel_sym=synonyms_sorted[i]
+          if pred != orig_label:
+            changed = True
+            sel_sym = synonyms_sorted[i]
             print(sel_sym)
             misclassified=True
             break
@@ -510,10 +507,10 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
                              for i in range(len(synonyms_sorted))]
           
           for i in range(len(sents_with_syns)):
-            num_queries+=len(sents_with_syns[i])
+            num_queries += len(sents_with_syns[i])
             if tmodel.getPredictions(sents_with_syns[i]).count(orig_label) < len(sents_with_syns[i]):
-              changed=True
-              sel_sym=synonyms_sorted[i]
+              changed = True
+              sel_sym = synonyms_sorted[i]
               break
         
         if not changed and len(agg_list) > 0:
@@ -532,20 +529,20 @@ def attack(cmodel, gcp_nlp_json_link, text_ls, true_label, stop_words_set, word2
                              for i in range(len(synonyms_sorted))] 
 
           for i in range(len(synonyms_sorted)):
-            num_queries+=len(agg_list)
+            num_queries += len(agg_list)
             if tmodel.getPredictions(aggs_with_syns[i]).count(orig_label)<len(aggs_with_syns[i]):
-              changed=True
-              sel_sym=synonyms_sorted[i]
+              changed = True
+              sel_sym = synonyms_sorted[i]
               break
                                     
         if changed:    
           
           for indx in word_idx_dic[str(target_word)]:
             #print("changed")
-            text_prime[indx]=sel_sym
+            text_prime[indx] = sel_sym
             text_prime = vowel_correction(text_prime[:] , indx)
             backtrack_dic[(sel_sym,indx)] = target_word
-            num_changed+=1
+            num_changed += 1
     #print(num_changed)            
     text_prime = ' '.join(text_prime)
     probs = tmodel.getPredictions([text_prime])
@@ -609,7 +606,7 @@ def main():
     output_dir = args.output_dir
 
     #download data to be Attacked
-    data=download_attack_data(args.dataset_path)
+    data = download_attack_data(args.dataset_path)
     
     #find word2idx and idx2word dicts
     embeddings, word2idx_vocab, idx2word_vocab = generate_embedding_mat(args.counter_fitting_embeddings_path)
@@ -619,48 +616,48 @@ def main():
 
     gcp_attack = False
     #Load the saved model using state dic
-    if args.target_model=="wordCNN":
-        default_model_path="saved_models/wordCNN/"
-        if 'imdb' in args.dataset_path:
-            default_model_path+='imdb'
-        elif 'mr' in args.dataset_path:
-            default_model_path+='mr'
-            
-        cmodel = Model(args.word_embeddings_path, nclasses = args.nclasses, hidden_size=100, cnn=True).cuda()
+    if args.target_model == "wordCNN":
+      default_model_path = "saved_models/wordCNN/"
+      if 'imdb' in args.dataset_path:
+        default_model_path += 'imdb'
+      elif 'mr' in args.dataset_path:
+        default_model_path += 'mr'
+          
+      cmodel = Model(args.word_embeddings_path, nclasses = args.nclasses, hidden_size=100, cnn=True).cuda()
         
-    elif args.target_model=="wordLSTM":
-        default_model_path="saved_models/wordLSTM/"
-        if 'imdb' in args.dataset_path:
-            default_model_path+='imdb'
-        elif 'mr' in args.dataset_path:
-            default_model_path+='mr'
-            
-        cmodel=Model(args.word_embeddings_path, nclasses = args.nclasses, cnn=False).cuda()
+    elif args.target_model == "wordLSTM":
+      default_model_path = "saved_models/wordLSTM/"
+      if 'imdb' in args.dataset_path:
+        default_model_path += 'imdb'
+      elif 'mr' in args.dataset_path:
+        default_model_path += 'mr'
+          
+      cmodel=Model(args.word_embeddings_path, nclasses = args.nclasses, cnn=False).cuda()
 
-    elif args.target_model=="bert":
-        default_model_path="saved_models/bert/"
-        if 'imdb' in args.dataset_path:
-            default_model_path+='imdb'
-        elif 'mr' in args.dataset_path:
-            default_model_path+='mr'
-        if args.target_model_path: 
-            cmodel=LoadPretrainedBert.loadPretrainedModel(args.target_model_path,nclasses = args.nclasses)
-        else:
-            cmodel=LoadPretrainedBert.loadPretrainedModel(default_model_path,nclasses = args.nclasses)
+    elif args.target_model == "bert":
+      default_model_path = "saved_models/bert/"
+      if 'imdb' in args.dataset_path:
+        default_model_path += 'imdb'
+      elif 'mr' in args.dataset_path:
+        default_model_path += 'mr'
+      if args.target_model_path: 
+        cmodel = LoadPretrainedBert.loadPretrainedModel(args.target_model_path,nclasses = args.nclasses)
+      else:
+        cmodel = LoadPretrainedBert.loadPretrainedModel(default_model_path,nclasses = args.nclasses)
 
     elif args.target_model=="gcp":
-        cmodel = None
+      cmodel = None
         
 
     if args.target_model!='bert' and args.target_model!='gcp':
-        #load checkpoints
-        if args.target_model_path:
-            print("target model path")          
-            checkpoint = torch.load(args.target_model_path, map_location=torch.device('cuda:0'))
-        else:
-            checkpoint = torch.load(default_model_path, map_location=torch.device('cuda:0'))
-            
-        cmodel.load_state_dict(checkpoint)
+      #load checkpoints
+      if args.target_model_path:
+        print("target model path")          
+        checkpoint = torch.load(args.target_model_path, map_location=torch.device('cuda:0'))
+      else:
+        checkpoint = torch.load(default_model_path, map_location=torch.device('cuda:0'))
+          
+      cmodel.load_state_dict(checkpoint)
 
     
     orig_failures = 0.
@@ -728,8 +725,8 @@ def main():
     log_file.write(message)
     i=1
     with open(os.path.join(args.output_dir,'adversaries.txt'), 'w') as ofile:
-        for orig_text, adv_text, true_label, new_label in zip(orig_texts, adv_texts, true_labels, new_labels):
-            ofile.write('orig sent ({}):\t{}\nadv sent ({}):\t{}\n\n'.format(true_label, orig_text, new_label, adv_text))
+      for orig_text, adv_text, true_label, new_label in zip(orig_texts, adv_texts, true_labels, new_labels):
+        ofile.write('orig sent ({}):\t{}\nadv sent ({}):\t{}\n\n'.format(true_label, orig_text, new_label, adv_text))
 
 
     
