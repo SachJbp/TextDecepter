@@ -9,7 +9,7 @@ Follow the steps to run the attack algorithm
 
 2) Download [glove embeddings](http://nlp.stanford.edu/data/glove.6B.zip), extract 'glove.6B.200d.txt' and put it in 'word_embeddings_path' folder
 
-3) Download pretrained target model parameters from [CNN](https://drive.google.com/file/d/1yUHFGN0e8Q8v_NU5wW25wx27bEOAyL0P/view) ,[LSTM](https://drive.google.com/file/d/1jOcUzWj3lpmiXHVi_KzvDK_sWmsmx7B5/view), [BERT](https://drive.google.com/drive/folders/1wKjelHFcqsT3GgA7LzWmoaAHcUkP4c7B?usp=sharing) and put it under subdirectories 'wordCNN', 'wordLSTM' and 'BERT' in 'saved_models' folder.
+3) Download pretrained target model parameters from [CNN](https://drive.google.com/drive/folders/1Ifowzfers0m1Aw2vE8O7SMifHUhkTEjh) ,[LSTM](https://drive.google.com/drive/folders/108myH_HHtBJX8MvhBQuvTGb-kGOce5M2), [BERT](https://drive.google.com/drive/folders/1wKjelHFcqsT3GgA7LzWmoaAHcUkP4c7B) and put it under subdirectories 'wordCNN', 'wordLSTM' and 'BERT' in 'saved_models' folder.
 
 4) Use the following syntax to run the attack algorithm
 
